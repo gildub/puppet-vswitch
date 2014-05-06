@@ -1,51 +1,27 @@
-require "puppet"
+require File.expand_path(File.join(File.dirname(__FILE__), '..', '..', '..', 'puppet_x', 'redhat', 'ifcfg.rb'))
 
-Base="/etc/sysconfig/network-scripts/ifcfg-" 
+Puppet::Type.type(:vs_bridge).provide(:ovs_redhat, :parent => :ovs) do
+  desc 'Openvswitch bridge manipulation for RedHat OSes family'
 
-Puppet::Type.type(:vs_bridge).provide(:ovs_redhat) do
-  desc "Openvswitch bridge manipulation for RedHat family OSs"
-
-  confine :osfamily => :redhat
+  confine    :osfamily => :redhat
   defaultfor :osfamily => :redhat
 
-  optional_commands :vsctl => "/usr/bin/ovs-vsctl",
-                    :ip    => "/sbin/ip"
-
-  def exists?
-    vsctl("br-exists", @resource[:name])
-  rescue Puppet::ExecutionFailure
-    return false
-  end
+  commands :vsctl => 'ovs-vsctl'
 
   def create
-    vsctl("add-br", @resource[:name])
-    ip("link", "set", @resource[:name], "up")
-    external_ids = @resource[:external_ids] if @resource[:external_ids]
+    begin
+      super unless vsctl('br-exists', @resource[:name])
+    rescue Puppet::ExecutionFailure => e
+      super
+    end
+    IFCFG::Bridge.new(@resource[:name]).save
+  end
+
+  def exists?
+    super && IFCFG::OVS.exists?(@resource[:name])
   end
 
   def destroy
-    vsctl("del-br", @resource[:name])
-  end
-
-  def external_ids
-    result = vsctl("br-get-external-id", @resource[:name])
-    return result.split("\n").join(",")
-  end
-
-  def external_ids=(value)
-    old_ids = _split(external_ids)
-    new_ids = _split(value)
-
-    new_ids.each_pair do |k,v|
-      unless old_ids.has_key?(k)
-        vsctl("br-set-external-id", @resource[:name], k, v)
-      end
-    end
-  end
-
-  private
-
-  def _split(string, splitter=",")
-    return Hash[string.split(splitter).map{|i| i.split("=")}]
+    super && IFCFG::OVS.remove(@resource[:name])
   end
 end
